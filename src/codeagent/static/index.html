@@ -81,7 +81,7 @@
               <details id="test-details" class="result-details"><summary>验证输出</summary><div class="result-details-body"><pre id="detail-tests">等待执行结果…</pre></div></details>
               <div id="review-box" class="review-box" hidden>
                 <h3>人工审核</h3><p id="review-warning" class="review-warning" hidden>这次修复尚未自动确认正确，请先自行检查代码与运行结果。</p>
-                <details id="review-files" class="review-files"><summary>查看文件位置</summary><div id="file-picker" class="review-file-picker"><label for="changed-file">改动文件</label><select id="changed-file"></select></div><div id="review-path" class="review-path"></div><details class="path-setting"><summary>路径显示设置</summary><label for="project-root">本机 CodeAgent 项目目录</label><input id="project-root" type="text" spellcheck="false"></details></details>
+                <details id="review-files" class="review-files"><summary>查看文件位置</summary><div id="file-picker" class="review-file-picker"><label for="changed-file">改动文件</label><select id="changed-file"></select></div><div id="review-path" class="review-path"></div><details class="path-setting"><summary>路径显示设置</summary><label for="project-root">本机 CodeAgent 项目目录</label><input id="project-root" type="text" spellcheck="false" placeholder="例如 D:\projects\CodeAgent"></details></details>
                 <div class="review-actions"><button id="prepare-review" class="btn btn-primary" type="button">生成审查工作树</button><button id="merge-review" class="btn btn-primary" type="button" hidden>合并到所选本地仓库</button></div>
                 <div id="review-notice" class="notice" role="status" aria-live="polite"></div>
               </div>
@@ -105,10 +105,9 @@
     const $ = id => document.getElementById(id);
     const developerMode = new URLSearchParams(window.location.search).get('dev')==='1';
     $('dev-panel').hidden=!developerMode;
-    const defaultProjectRoot = 'D:\\找工作\\项目\\CodeAgent';
     let savedProjectRoot = '';
     try { savedProjectRoot = localStorage.getItem('codeagent.projectRoot') || ''; } catch {}
-    const state = { tasks:[], selectedTask:null, currentTask:null, selectedEval:null, source:null, seen:new Set(), cases:new Map(), repos:[], formRepo:null, formTestPaths:[], formRunPath:null, formMode:null, showPastFailures:false, projectRoot:savedProjectRoot || defaultProjectRoot };
+    const state = { tasks:[], selectedTask:null, currentTask:null, selectedEval:null, source:null, seen:new Set(), cases:new Map(), repos:[], formRepo:null, formTestPaths:[], formRunPath:null, formMode:null, showPastFailures:false, projectRoot:savedProjectRoot };
     function syncView() {
       const workbench=window.location.hash==='#workbench';
       $('cover-view').hidden=workbench;
@@ -125,7 +124,12 @@
     const terminal = new Set(['succeeded','failed','cancelled']);
     const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '—';
     const notice = (id,message) => { $(id).textContent = message || ''; };
-    const fullLocalPath = (...parts) => state.projectRoot.trim().replace(/[\\/]+$/, '')+'\\'+parts.join('\\').replaceAll('/','\\');
+    const fullLocalPath = (...parts) => {
+      const root=state.projectRoot.trim().replace(/[\\/]+$/, '');
+      const slash=root.includes('\\') ? '\\' : '/';
+      const relative=parts.join('/').replaceAll('\\','/');
+      return root ? root+slash+relative.replaceAll('/',slash) : relative;
+    };
     let renderedDiffTask=null;
     let renderedDiffText=null;
     let renderedDiffPlaceholder=null;
@@ -278,6 +282,12 @@
         box.append(row);
       };
       if (!files.length) { add('改动文件','暂无线索'); return; }
+      if (!state.projectRoot.trim()) {
+        const hint=document.createElement('p');
+        hint.className='field-help';
+        hint.textContent='当前显示相对路径；在“路径显示设置”中填写本机项目目录可查看完整路径。';
+        box.append(hint);
+      }
       const file=picker.value;
       add(task.review_status?.startsWith('merged')?'原文件（已包含修复）':'原文件（尚未合并）',fullLocalPath('local_repos',task.source_repo,file));
       if (!task.review_status) { add('修复后文件','生成审查工作树后可查看'); return; }

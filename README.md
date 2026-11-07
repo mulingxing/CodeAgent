@@ -1,155 +1,107 @@
 # CodeAgent
 
-一个受控的 AI Coding Agent 后端任务系统。项目以 Claude Agent SDK 接入 DeepSeek，通过 API 提交任务，由 Celery Worker 异步执行，再把状态、代码差异、测试结果和错误写入数据库。
+面向**本机可信 Python Git 仓库**的 AI 代码修复工作台。选择仓库、描述问题并指定验证方式后，CodeAgent 在独立快照中生成候选修复，运行检查，展示代码差异；只有人工审核并确认合并，所选本地仓库的分支才会改变。
 
-## 已实现
+![CodeAgent 封面](docs/images/cover.png)
 
-- FastAPI：提交任务、查询任务、健康检查。
-- PostgreSQL：保存任务状态和 Agent 产物；Alembic 管理表结构。
-- Redis + Celery：把耗时任务移出 API 进程，由独立 Worker 执行。
-- Claude Agent SDK + DeepSeek：通过受限的进程内工具修复样例代码。
-- 任务幂等领取、Worker 异常后的过期任务回收、执行超时和最多 3 次 Worker 执行尝试。
-- 任务取消、Agent 超时后延迟重试，以及数据库 Outbox + Celery Beat 补投。
-- 仓库修复可选择 pytest、直接运行 Python 脚本，或仅进行人工验证；运行输出和验证状态会随任务保存。
-- pytest：修复前确认所选测试失败，修复后在隔离环境中复测并保存输出。
-- 每次测试使用独立 Docker 容器，关闭网络、只读挂载样例并限制 CPU、内存和进程数。
-- Docker Compose：编排 API、Worker、Beat、内部 Sandbox 服务、PostgreSQL 和 Redis。
-- 任务进度事件与 SSE 续读；12 个受控 Bug 样例的批量评测、指标查询和本地展示页面。
-- 本地 Git 仓库任务：提交 Bug 描述和验证方式；Worker 从指定提交提取只读快照，Agent 可修改多个 Python 源文件，保存候选补丁和验证结果。
-- 人工审查流程：页面生成独立 Git 分支与工作树，明确点击后快进合并回原分支，并清理审查工作树。
+## 能做什么
 
-## 当前范围
+- 从已提交的 Git 版本创建任务快照。Agent 只能读取允许的 Python 源文件和所选测试，只能修改已有源文件，不能改测试或执行任意 Shell 命令。
+- 用已有 `pytest`、直接运行 Python 脚本，或人工验证三种方式检查候选修改；保存修复前后的输出和状态。
+- 通过页面查看任务进度、逐行代码差异及原文件行号、验证结果和执行记录。
+- 将通过检查的修改放入独立 Git 审查工作树；人工确认后，才快进合并到任务选择的 `local_repos/<仓库名>`。
+- 使用数据库 Outbox、Celery Worker 和 Beat 处理任务投递、重试与恢复；任务和进度事件持久化，页面通过 SSE 接收更新。
 
-任务可选择年龄边界演示、12 个受控单函数样例，或 `local_repos` 中的本地 Git 仓库。固定样例仍使用 AST 白名单；仓库任务只开放仓库内已跟踪的 Python 源文件给 Agent，禁止编辑测试，且不开放 Bash。仓库任务支持多文件修改。pytest 模式验证用户所选的 1～8 个测试文件；直接运行模式在隔离环境中执行指定的已跟踪 Python 脚本；人工模式只做 Python 语法检查，由用户审查差异。pytest 和直接运行检查由内部 Sandbox 服务启动独立 Docker 容器；Agent SDK 仍在普通权限的 Worker 进程内运行。
+![CodeAgent 工作台](docs/images/workbench.png)
 
-## 阶段 5：本地 Git 仓库
+截图来自本地试验记录。新克隆的仓库不会附带任务数据库、密钥或试验仓库。
 
-页面以本地仓库修复为主；固定样例与 12 项评测放在折叠的“开发验证”区，供检查执行链路使用。仓库任务可选择：
+## 一次修复如何运行
 
-| 验证方式 | 提交内容 | 结果含义 |
-| --- | --- | --- |
-| pytest | 1～8 个已跟踪的 `tests/test_*.py` 文件 | 所选测试修复前至少有一项失败、修复后全部通过才算验证通过；Agent 不修改测试文件。 |
-| 直接运行 | 一个已跟踪的 Python 脚本、可选参数及预期标准输出片段 | 脚本在隔离容器中运行；有明确预期且满足时才算验证通过。仅正常退出表示运行成功，仍需人工判断逻辑。 |
-| 人工验证 | Bug 描述 | Agent 修改后检查 Python 语法，展示差异并标记“待人工验证”。 |
-
-任务详情中的代码差异展示该任务实际修改的源码，并逐行列出原文件与修复后文件的行号；删除行只有原行号，新增行只有修复后行号。验证失败时保留候选差异和错误输出供检查；Agent 最多依据失败输出再修一次。审查分支位于原仓库之外，只有人工点击合并才会修改原分支。如果练习仓库由同一个旧提交复制而来，又运行同一测试，那么两次任务可能产生完全相同的补丁。请用仓库名、任务 ID 和基准提交区分任务记录。
-
-本机已准备 `local_repos/demo_shop`，它是包含两个 Bug 的独立演示仓库。若在新电脑上缺少它，可运行 `.\.venv\Scripts\python.exe scripts\create_demo_repo.py` 创建；脚本发现同名目录已存在时会停止，不会覆盖。自己的项目需要先有 Git 提交，将**整个仓库文件夹（包括 `.git`）**放在 `local_repos` 下的一级子目录，例如 `local_repos/my_project`。目录名只允许英文字母、数字、下划线和连字符。pytest 模式支持已跟踪的 `tests/test_*.py`；直接运行模式选择仓库里已有的 `.py` 脚本。所需依赖应能由容器现有 Python 环境满足；目前不自动安装各仓库的依赖。
-
-1. 在前台运行 `docker compose up --build`，打开 `http://localhost:8000/`，点击“进入工作台”。在“发起修复”中选择仓库与验证方式，描述 Bug 后提交。会调用 DeepSeek API 并产生费用。仓库源码会发送给 DeepSeek；代码检查在无网络、无密钥的隔离容器运行。结束时在该终端按 `Ctrl+C`。
-2. 等待任务显示“待生成审查”，检查“代码差异”和验证输出。原仓库文件此时仍是旧版本。人工模式或没有明确预期的直接运行模式会标记为待人工验证。
-3. 点击“生成审查分支和工作树”。任务会显示“待人工审核”；详情页可逐个选择改动文件，查看该文件在原仓库和审查工作树中的完整本机路径。原仓库位于 `local_repos/<仓库名>`，修复结果位于 `reviews/<仓库名>-<任务 ID 前八位>`，分支名为 `codeagent/<任务 ID>`。如果项目被移动，可展开“路径显示设置”修改本机项目目录；这个设置只改变页面显示的路径。工作树使用相对路径链接，在 Windows 上用 Git 操作它时需要 Git 2.48 或更新版本。
-4. 确认修改后，点击“确认合并到原仓库”。这里的“原仓库”是任务选中的 `local_repos/<仓库名>`；若它是从其他项目复制的试验副本，合并不会回写最初的项目目录。系统要求原分支和审查工作树都未变化，执行快进合并；成功后删除审查工作树和临时分支。数据库中的任务记录、代码差异和测试结果仍保留。若审查工作树有未提交修改，系统会拒绝合并和清理，避免丢失文件。
-
-首次测试建议只用 `demo_shop`。不想合并时，停在第 2 或第 3 步即可；请勿直接删除 `reviews` 目录，否则 Git 会残留工作树记录。
-
-学习系统设计时可按 [项目学习导图](docs/PROJECT_LEARNING_GUIDE.md) 的顺序阅读代码。
-两类真实仓库问题的基线、修复与审核范围记录在 [真实仓库试验记录](docs/REAL_REPO_EVALUATION.md)。
-
-## 三种验证方式的演示仓库
-
-需要练习时，在项目根目录运行 `.\.venv\Scripts\python.exe scripts\create_validation_demos.py`。脚本会新建三个独立、已提交的 Git 仓库；任一同名目录已存在时会停止，不会覆盖。页面点击“刷新”即可看到它们。脚本也支持 `--output-dir` 指向其他目录，便于先在临时位置检查内容。
-
-| 仓库 | 验证方式与填写内容 | Bug 描述示例 |
-| --- | --- | --- |
-| `demo_algorithm` | pytest；`tests/test_search.py` | 二分查找没有检查最后一个候选位置，单元素和最后元素的测试失败。 |
-| `demo_numeric` | 直接运行；入口 `src/simulate.py`，参数留空，预期输出 `distance=5.00` | 匀速 2.5、每步 0.2 秒、运行 10 步，应走 5.00；现在累加公式错误。 |
-| `demo_plot_svg` | 直接运行；入口 `src/plot_svg.py`，参数留空，预期输出 `points="0,80 40,40 80,0"` | 画出的折线纵坐标方向反了；0、0.5、1.0 应从下到上绘制。 |
-
-画图示例把 SVG 文本打印到运行输出中，可检查折线坐标。当前系统没有文件产物下载或图片预览功能，直接运行模式也不允许向只读测试工作区写文件。以上示例只用 Python 标准库，避免额外依赖影响演示。
-
-## 准备
-
-需要 Docker Desktop（或 Linux Docker Engine）和 DeepSeek API Key。在项目根目录准备 `.env`：
-
-```dotenv
-DEEPSEEK_API_KEY=你的密钥
-DEEPSEEK_MODEL=deepseek-flash[1m]
-POSTGRES_DB=codeagent
-POSTGRES_USER=codeagent
-POSTGRES_PASSWORD=change-this-local-password
+```mermaid
+flowchart LR
+    A[选择仓库和描述问题] --> B[FastAPI 记录任务与 Outbox]
+    B --> C[Redis / Celery Worker]
+    C --> D[Git 提交快照与受限 Agent 工具]
+    D --> E[独立 Docker 容器验证]
+    E --> F[保存差异、输出和进度]
+    F --> G[人工审查工作树]
+    G --> H[确认后合并到所选本地仓库]
 ```
 
-本机已有 `.env` 时不要用模板覆盖它。密钥不应提交到 Git；`.env` 已忽略。
+Agent 通过 Claude Agent SDK 调用 DeepSeek，使用受限的文件列表、读取、整文件写入和局部片段替换工具。验证在无网络、无模型密钥的独立容器中进行。任务失败时保留原因和已有候选差异；通过测试也仍需人工检查改动范围。
 
-Windows 本机 Python/SDK 配置和阶段 0 的真实 Agent 验证见 `docs/STAGE0_VALIDATION.md` 与本文件后面的“阶段 0”。Docker Compose 会在 Linux 容器中运行 Celery Worker，Windows 原生 Celery Worker 不在支持范围内。
+| 验证方式 | 如何判断结果 |
+| --- | --- |
+| 已有 `pytest` | 选择 1～8 个已跟踪的测试文件；修复前先确认问题能复现，修复后所选测试全部通过才算验证通过。 |
+| 直接运行 Python | 运行一个已跟踪的 `.py` 入口，可填写预期输出片段；只有明确的预期得到满足才能自动确认结果，单纯正常退出仍需人工判断逻辑。 |
+| 人工验证 | 检查修改后的 Python 语法并展示差异；需要自行运行和判断修复是否正确。 |
 
-## 启动服务
+## 案例
+
+项目内的 `scripts/create_validation_demos.py` 可生成三个独立的入门仓库，分别覆盖算法、数值计算和 SVG 绘图：
+
+| 仓库 | 原问题 | 验证方式 |
+| --- | --- | --- |
+| `demo_algorithm` | 二分查找漏掉最后一个候选位置，单元素及末尾元素查找失败。 | `pytest`：`tests/test_search.py` |
+| `demo_numeric` | 位移累加公式错误，匀速运动 10 步应输出 `distance=5.00`。 | 直接运行 `src/simulate.py` 并核对输出 |
+| `demo_plot_svg` | SVG 折线的纵坐标方向反了，预期点列为 `0,80 40,40 80,0`。 | 直接运行 `src/plot_svg.py` 并核对输出 |
+
+随后使用**智能旅行助手的独立 Git 副本**测试了更复杂的问题：
+
+| 真实仓库试验 | 修复前 | 候选修复与独立复核 |
+| --- | --- | --- |
+| POI 地图适配：成功结果被丢弃、上游异常被当成空结果 | 所选回归测试 3 项失败 | Agent 修改地图服务和路由；所选测试通过，相关测试 36 项及 42 个子测试通过。改动涉及更多功能，仍保留在审查工作树中。 |
+| 日期一致性：非法日期、倒序日期、天数与日期跨度不符等 | 所选日期测试 5 项失败、1 项通过 | Agent 修改请求模型与行程校验；补充日期格式边界后，相关测试 41 项及 42 个子测试通过。 |
+
+日期案例最初两次因 Agent 超时失败。排查后增加了受限的局部片段替换工具，使 Agent 能修改较大的源码文件；后续任务完成修复。这些失败记录保留，用于展示排查与迭代过程。完整的测试范围和限制见[真实仓库试验记录](docs/REAL_REPO_EVALUATION.md)。试验使用的是**副本**，CodeAgent 不会修改最初的旅行项目目录，也不能凭所选测试通过就断言所有外部服务行为正确。
+
+另有 12 个固定 Bug 样例用于检查任务执行链路。首次完整评测为 **11/12**；失败项在调整工具提示后单独复测通过，原评测结果没有改写。该数字只反映这批固定样例，不能代表任意 Python 仓库的修复成功率。
+
+## 技术栈
+
+| 部分 | 技术与作用 |
+| --- | --- |
+| 页面与接口 | 原生 HTML、CSS、JavaScript；FastAPI；SSE 进度事件 |
+| 任务与数据 | PostgreSQL、SQLAlchemy、Alembic；数据库 Outbox |
+| 异步执行 | Redis、Celery Worker、Celery Beat |
+| AI 修复 | Claude Agent SDK 接入 DeepSeek；受限的 MCP 文件工具 |
+| 验证与审核 | Docker 隔离容器、`pytest`、Git 提交快照、审查工作树与快进合并 |
+| 部署 | Docker Compose；Windows Docker Desktop + WSL 2 已联调 |
+
+## 本地运行
+
+需要 Docker Desktop（Windows 建议使用 WSL 2）、Git 和 DeepSeek API Key。生成示例仓库还需要本机 Python 3.10 或更高版本。以下命令在项目根目录用 PowerShell 运行：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+编辑 `.env`，填入自己的 `DEEPSEEK_API_KEY`，并修改示例数据库密码。真实 `.env` 已被 Git 忽略，**不要提交密钥**。需要演示数据时运行：
+
+```powershell
+python scripts/create_validation_demos.py
+```
+
+任一同名目录已存在时，脚本会停止，不会覆盖原目录。启动服务：
 
 ```powershell
 docker compose up --build
 ```
 
-API 容器等待 PostgreSQL 和 Redis 健康后，先执行 `alembic upgrade head`，然后启动 FastAPI。Worker、Beat 和内部 Sandbox 服务随后启动。展示页面为 `http://localhost:8000/`，交互式接口文档为 `http://localhost:8000/docs`。
+打开 [http://localhost:8000/](http://localhost:8000/) 并进入工作台。首次构建需要下载镜像和 Python 依赖；提交真实任务会调用 DeepSeek API 并产生费用。结束时在这个前台终端按 `Ctrl+C` 停止服务。接口文档位于 [http://localhost:8000/docs](http://localhost:8000/docs)。开发用的固定样例与 12 项评测默认不显示，可通过 `http://localhost:8000/?dev=1#workbench` 打开。
 
-提交任务：
+### 使用自己的仓库
 
-```powershell
-$body = @{ repo_id = 'age-boundary-demo'; prompt = 'Fix the age boundary so age 18 is treated as an adult.' } | ConvertTo-Json
-$task = Invoke-RestMethod -Method Post -Uri 'http://localhost:8000/api/v1/tasks' -ContentType 'application/json' -Body $body
-$task
-```
+将**整个已提交且工作区干净的 Python Git 仓库**（包含 `.git`）放到 `local_repos/<仓库名>`，回到工作台点击“刷新”。仓库名只用英文字母、数字、下划线和连字符。选择验证方式、填写问题后提交；在任务结果中检查差异与验证输出，再决定是否生成审查工作树并合并。
 
-查询任务（将响应中的 ID 替换进 URL）：
+`local_repos` 中的仓库是任务实际作用的对象。如果它是从另一个项目复制来的副本，页面上的“合并到所选本地仓库”只修改这个副本。文件位置默认显示相对路径，可在“路径显示设置”中填写本机 CodeAgent 目录以查看完整路径。
 
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8000/api/v1/tasks/$($task.id)"
-```
+## 运行边界
 
-典型状态流转：`queued → running → succeeded`，也可能进入 `failed` 或 `cancelled`。成功时返回 `result_summary`、`diff`、`test_output`、耗时和 Agent 轮数。提交接口返回 HTTP 202；Redis 暂不可用时任务仍保留为 `queued`，Beat 会在 Redis 恢复后补投。
+- 仓库快照限制为约 8 MB、500 个文件；只修改已有的、已跟踪的 Python 源文件。项目不会自动安装目标仓库依赖，复杂数值仿真或绘图项目需先满足验证容器的依赖和运行条件。
+- 直接运行模式目前不提供图片或其他文件产物预览。没有明确预期输出时，程序正常退出不能证明计算或图形正确。
+- 源码片段会发送给 DeepSeek 分析。服务无用户认证，只绑定本机回环地址；内部 Sandbox 服务持有 Docker socket，仅适合本人可信代码的本地学习和演示。
+- `.env`、`local_repos/`、`reviews/`、运行数据和本机虚拟环境均不随 Git 仓库上传。
 
-取消任务：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/api/v1/tasks/$($task.id)/cancel"
-```
-
-排队任务会立即停止投递。运行中的任务立即标记为 `cancelled`，Worker 在下一个检查点停止继续处理，并丢弃迟到的结果；正在进行的模型请求可能仍会继续消耗少量用量。固定样例最长 180 秒，仓库任务最长 300 秒。
-
-查看可用评测样例和实时进度：
-
-```powershell
-Invoke-RestMethod -Uri 'http://localhost:8000/api/v1/cases'
-curl.exe -N 'http://localhost:8000/api/v1/tasks/你的任务ID/events'
-```
-
-启动一轮 12 个样例的评测（会调用 DeepSeek API 并产生费用）：
-
-```powershell
-$run = Invoke-RestMethod -Method Post -Uri 'http://localhost:8000/api/v1/evaluations'
-Invoke-RestMethod -Uri "http://localhost:8000/api/v1/evaluations/$($run.id)"
-```
-
-评测指标只描述这 12 个固定样例：任务成功率、Agent 修改率、测试通过率、平均耗时和平均轮数。评测任务走与普通任务相同的 Outbox、Worker 和 Sandbox 流程。完整定义见 [docs/STAGE4_PROGRESS_EVAL.md](docs/STAGE4_PROGRESS_EVAL.md)。
-
-前台启动的服务，在运行 `docker compose up --build` 的终端按 `Ctrl+C` 即可停止。如需移除已停止的 Compose 容器与网络，再运行：
-
-```powershell
-docker compose down
-```
-
-PostgreSQL 数据保存在 Compose volume 中。清理数据需额外执行 `docker compose down -v`，这会删除该项目数据库和 Redis 持久化数据。
-
-## 阶段 0：本机环境与 Agent 验证
-
-项目内环境脚本安装 uv、Python 3.12.16 和依赖，不修改系统 PATH：
-
-```powershell
-.\scripts\setup.ps1
-.\scripts\run_stage0.ps1
-```
-
-真实 Agent 请求会产生 DeepSeek API 用量。阶段 0 的执行记录见 [docs/STAGE0_VALIDATION.md](docs/STAGE0_VALIDATION.md)。
-
-## 本地开发提示
-
-本地默认数据库是 SQLite，配置可通过环境变量覆盖。完成依赖同步后，可在项目根目录执行 `.\.venv\Scripts\alembic.exe upgrade head` 创建本地表，再运行 `.\.venv\Scripts\uvicorn.exe codeagent.main:app --reload`；提交任务仍需要 Redis 和可运行的 Celery Worker。Celery Worker 建议通过上面的 Compose 启动。本机阶段 0 脚本使用本地固定测试，Compose Worker 使用 Docker 测试容器。
-
-## 已知边界
-
-- 仓库模式当前限于已提交、干净的本地 Python Git 仓库；pytest 模式可选择 1～8 个已跟踪的测试文件。限制快照 8 MB / 500 文件，仅修改已有 Python 源文件，不安装仓库依赖，也不支持远程 GitHub 仓库自动导入。直接运行模式只支持受限的 Python 脚本，不接收任意 Shell 命令；复杂项目可能需要后续适配。
-- 没有用户认证；服务仅绑定本机回环地址。SSE 展示数据库保存的阶段事件和状态，不包含模型原始输出或逐 token 日志。
-- 内部 Sandbox 服务挂载 Docker socket 并以 root 身份启动，因此该服务拥有很高的宿主机权限。Worker 不持有 Docker socket。测试容器无网络、只读挂载快照、无模型密钥并有限额；此配置适合本人可信代码的本地学习，不作为运行陌生仓库的生产安全边界。
-- 已在 Windows Docker Desktop + WSL 2 上完成 Compose 六服务联调和真实 Agent 任务验证。首轮 12 项评测为 11/12；“剩余库存”曾因 Agent 达到轮数上限失败，调整工具提示后单项复测通过。首轮评测记录保留原始结果。
-
-第三阶段设计与验证记录见 [docs/STAGE3_RELIABILITY.md](docs/STAGE3_RELIABILITY.md)。
+想按代码流程学习项目，可从[项目学习导图](docs/PROJECT_LEARNING_GUIDE.md)开始；阶段性设计与验证记录在 `docs/` 下。

@@ -44,6 +44,7 @@
 首次测试建议只用 `demo_shop`。不想合并时，停在第 2 或第 3 步即可；请勿直接删除 `reviews` 目录，否则 Git 会残留工作树记录。
 
 学习系统设计时可按 [项目学习导图](docs/PROJECT_LEARNING_GUIDE.md) 的顺序阅读代码。
+两类真实仓库问题的基线、修复与审核范围记录在 [真实仓库试验记录](docs/REAL_REPO_EVALUATION.md)。
 
 ## 三种验证方式的演示仓库
 

@@ -1,0 +1,16 @@
+.env
+.git
+.venv
+.tools
+.cache
+.runtime
+__pycache__
+.pytest_cache
+*.pyc
+*.egg-info
+build
+dist
+tests
+docs
+local_repos
+reviews

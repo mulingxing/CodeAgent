@@ -1,0 +1,125 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-codeagent}
+      POSTGRES_USER: ${POSTGRES_USER:-codeagent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-codeagent} -d ${POSTGRES_DB:-codeagent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: .
+    image: codeagent-app:local
+    command: ["sh", "-c", "alembic upgrade head && uvicorn codeagent.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codeagent}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-codeagent}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash[1m]}
+      GIT_CONFIG_NOSYSTEM: "1"
+      LOCAL_REPOS_ROOT: /data/local_repos
+      REVIEWS_ROOT: /data/reviews
+    volumes:
+      - ./local_repos:/data/local_repos
+      - ./reviews:/data/reviews
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build: .
+    image: codeagent-app:local
+    command: ["celery", "-A", "codeagent.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    volumes:
+      - codeagent_jobs:/app/.runtime/jobs
+      - ./local_repos:/data/local_repos:ro
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codeagent}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-codeagent}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash[1m]}
+      GIT_CONFIG_NOSYSTEM: "1"
+      TEST_EXECUTION_MODE: remote
+      SANDBOX_SERVICE_URL: http://sandbox:8001
+      LOCAL_REPOS_ROOT: /data/local_repos
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  sandbox:
+    build: .
+    image: codeagent-app:local
+    command: ["uvicorn", "codeagent.sandbox_api:app", "--host", "0.0.0.0", "--port", "8001"]
+    # Only this internal service has Docker socket access.
+    user: "0:0"
+    volumes:
+      - codeagent_jobs:/app/.runtime/jobs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      TEST_EXECUTION_MODE: docker
+      SANDBOX_IMAGE: codeagent-app:local
+      SANDBOX_WORKSPACE_VOLUME: codeagent_jobs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  beat:
+    build: .
+    image: codeagent-app:local
+    command: ["celery", "-A", "codeagent.celery_app:celery_app", "beat", "--loglevel=INFO"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-codeagent}:${POSTGRES_PASSWORD:-change-this-local-password}@db:5432/${POSTGRES_DB:-codeagent}
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  codeagent_jobs:
+    name: codeagent_jobs

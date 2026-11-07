@@ -1,0 +1,15 @@
+.env
+.venv/
+.python/
+.uv-cache/
+.runtime/
+.tools/
+.cache/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+build/
+dist/
+local_repos/
+reviews/

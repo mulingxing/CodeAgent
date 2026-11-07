@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeAgent · 本地代码修复</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <section id="cover-view" class="cover-view" aria-labelledby="cover-title">
+    <div class="cover-shell">
+      <header class="cover-header">
+        <div class="brand"><div class="mark">C</div><span>CodeAgent</span></div>
+        <span class="cover-header-note">AI Coding Agent · 本地代码修复</span>
+      </header>
+      <div class="cover-main">
+        <div class="cover-copy">
+          <div class="cover-kicker"><span class="cover-kicker-line"></span> 从问题描述到可审核的修复</div>
+          <h1 id="cover-title" class="cover-title">让 Agent 修复代码，<br><em>由你决定是否合并。</em></h1>
+          <p class="cover-description">选择本地 Git 仓库，交给 Agent 定位并修复问题。验证结果、代码差异和审查分支都清楚呈现。</p>
+          <div class="cover-actions">
+            <button id="enter-app" class="btn btn-primary cover-primary" type="button">进入工作台 <span aria-hidden="true">↗</span></button>
+            <span class="cover-action-hint">从已有仓库开始，三步完成一次修复</span>
+          </div>
+        </div>
+        <div class="cover-visual" aria-label="CodeAgent 修复流程：提交任务、验证修改、人工合并">
+          <div class="flow-card">
+            <div class="flow-card-top"><span class="flow-card-title"><span class="flow-pulse"></span> 一次修复的完整路径</span><span class="flow-card-tag">CODEAGENT / 01</span></div>
+            <div class="flow-step"><span class="flow-number">01</span><div><strong>提交仓库与问题</strong><small>选择适合的验证方式</small></div><span class="flow-check">✓</span></div>
+            <div class="flow-line"></div>
+            <div class="flow-step"><span class="flow-number">02</span><div><strong>Agent 修改并验证</strong><small>查看源码差异与运行结果</small></div><span class="flow-check">✓</span></div>
+            <div class="flow-line"></div>
+            <div class="flow-step"><span class="flow-number">03</span><div><strong>人工审核后合并</strong><small>最终改动由你确认</small></div><span class="flow-arrow">↗</span></div>
+            <div class="cover-code"><span>src/shop/stock.py</span><code><b>−</b> available = count &gt; amount<br><i>+</i> available = count &gt;= amount</code></div>
+          </div>
+        </div>
+      </div>
+      <div class="cover-foot"><span>本地仓库</span><span class="cover-foot-separator"></span><span>隔离验证</span><span class="cover-foot-separator"></span><span>人工审核</span></div>
+    </div>
+  </section>
+
+  <div id="app-view" class="app-view" hidden>
+    <div class="shell">
+      <header class="app-header">
+        <div class="brand"><div class="mark">C</div><span>CodeAgent</span><span class="brand-divider">/</span><span class="brand-section">工作台</span></div>
+        <div class="app-actions"><button id="back-cover" class="text-button" type="button">← 返回封面</button><div class="status"><span id="health-dot" class="dot"></span><span id="health-text">检查服务中</span></div></div>
+      </header>
+      <main>
+        <div class="app-intro"><div><div class="eyebrow">WORKSPACE</div><h1 id="workspace-title" tabindex="-1">代码修复工作台</h1><p class="sub">提交任务，查看结果，确认后合并。</p></div><span class="intro-note">本地 Git 仓库 · Python 源码</span></div>
+        <div class="metrics" aria-label="任务概况"><div class="metric"><span class="label">最近任务</span><strong id="m-tasks" class="value">—</strong></div><div class="metric"><span class="label">执行中</span><strong id="m-running" class="value">—</strong></div><div class="metric"><span class="label">待审核</span><strong id="m-review" class="value">—</strong></div><div class="metric"><span class="label">已合并</span><strong id="m-merged" class="value">—</strong></div></div>
+
+        <div class="layout">
+          <section class="panel new-task-panel" aria-labelledby="new-task-title">
+            <div class="panel-head"><div><span class="section-kicker">01 / NEW TASK</span><h2 id="new-task-title">发起修复</h2></div></div>
+            <div class="panel-body">
+              <p id="form-hint" class="helper">选择仓库，描述问题，再决定如何验证修复。</p>
+              <form id="repo-form" class="form-grid">
+                <div><label for="repo-select">本地仓库</label><select id="repo-select" required></select></div>
+                <button id="refresh-repos" class="btn btn-subtle" type="button">刷新</button>
+                <div class="full"><label for="repo-prompt">问题描述</label><textarea id="repo-prompt" minlength="8" maxlength="2000" required placeholder="例如：库存恰好等于购买数量时，订单被错误拒绝。"></textarea></div>
+                <div class="full"><label for="validation-mode">验证方式</label><select id="validation-mode"><option value="pytest">运行已有 pytest</option><option value="run">直接运行 Python 文件</option><option value="manual">人工验证</option></select><p id="mode-hint" class="field-help"></p></div>
+                <fieldset id="pytest-fields" class="validation-fields full"><legend>选择验收测试</legend><div id="test-options" class="test-options"></div><p class="field-help">最多选择 8 个已提交的测试文件。Agent 不会修改这些测试。</p></fieldset>
+                <div id="run-fields" class="validation-fields full" hidden><label for="run-path">运行入口</label><select id="run-path"></select><label for="run-args" class="run-field-label">运行参数（可选）</label><input id="run-args" type="text" maxlength="500" placeholder="例如 --input sample.csv"><p class="field-help">参数以空格分隔；不会通过 Shell 执行。</p><label for="expected-output" class="run-field-label">预期输出片段（可选）</label><input id="expected-output" type="text" maxlength="500" placeholder="例如 结果：42"><p class="field-help">填写后会核对标准输出；留空时只能确认程序正常运行。</p></div>
+                <div id="manual-fields" class="validation-fields full" hidden><p class="field-help">此模式检查 Python 语法并保留代码差异。结果需要你自行运行和确认。</p></div>
+                <button id="submit-repo" class="btn btn-primary full" type="submit">提交修复任务 <span aria-hidden="true">→</span></button>
+              </form>
+              <details class="form-note"><summary>提交前需要知道</summary><p>仓库需已提交且工作区干净。源码会发送给 DeepSeek 分析；运行检查在无网络的容器中执行。提交会产生 API 费用。</p></details>
+              <div id="repo-notice" class="notice" role="status" aria-live="polite"></div>
+            </div>
+          </section>
+          <section class="panel history-panel" aria-labelledby="history-title">
+            <div class="panel-head"><div><span class="section-kicker">02 / HISTORY</span><h2 id="history-title">最近任务</h2></div><span class="tiny muted">自动刷新</span></div>
+            <div class="panel-body"><div id="task-list" class="task-list"><div class="empty">正在读取任务…</div></div></div>
+          </section>
+        </div>
+
+        <section id="detail-section" class="panel detail-section" aria-labelledby="detail-section-title">
+          <div class="panel-head"><div><span class="section-kicker">03 / RESULT</span><h2 id="detail-section-title">任务结果</h2></div><button id="cancel-task" class="btn btn-danger" type="button" hidden>取消任务</button></div>
+          <div class="panel-body">
+            <div id="detail-empty" class="empty">选择右侧的一条任务，查看修复进度与结果。</div>
+            <div id="detail" hidden>
+              <div class="detail-top"><div><div id="detail-title" class="detail-title"></div><div id="detail-context" class="muted tiny"></div><div id="detail-id" class="id mono"></div></div><span id="detail-status" class="badge"></span></div>
+              <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+              <div class="progress-meta"><span id="detail-phase"></span><span id="detail-percent"></span></div>
+              <div class="result-grid"><div class="result-box"><span class="label">修改源码</span><strong id="detail-files">等待结果</strong></div><div class="result-box"><span class="label">验证结果</span><strong id="detail-test-summary">等待结果</strong></div></div>
+              <p id="detail-validation-note" class="validation-note"></p>
+              <details id="diff-details" class="result-details"><summary>代码差异 <span class="summary-hint">原行 · 新行 · 代码</span></summary><div class="result-details-body"><p id="diff-context" class="muted tiny"></p><div id="detail-diff" class="diff-viewer" aria-label="逐行代码差异"><div class="diff-empty">等待执行结果…</div></div></div></details>
+              <details id="test-details" class="result-details"><summary>验证输出 <span class="summary-hint">查看测试或运行记录</span></summary><div class="result-details-body"><pre id="detail-tests">等待执行结果…</pre></div></details>
+              <div id="review-box" class="review-box" hidden>
+                <h3>审查与合并</h3><p id="review-warning" class="review-warning" hidden>这次修复尚未自动确认正确，请先自行检查代码与运行结果。</p>
+                <div id="file-picker" class="review-file-picker"><label for="changed-file">查看改动文件路径</label><select id="changed-file"></select></div>
+                <div id="review-path" class="review-path"></div>
+                <details class="path-setting"><summary>路径显示设置</summary><label for="project-root">本机 CodeAgent 项目目录</label><input id="project-root" type="text" spellcheck="false"></details>
+                <div class="review-actions"><button id="prepare-review" class="btn btn-primary" type="button">生成审查分支和工作树</button><button id="merge-review" class="btn btn-primary" type="button" hidden>确认合并到原仓库</button></div>
+                <div id="review-notice" class="notice" role="status" aria-live="polite"></div>
+              </div>
+              <details id="activity-details" class="result-details"><summary>执行记录 <span class="summary-hint">时间线与运行信息</span></summary><div class="result-details-body activity-grid"><div><h3>执行信息</h3><div id="detail-info" class="muted tiny"></div></div><div><h3>进度时间线</h3><div id="timeline" class="timeline"><div class="empty">等待进度事件。</div></div></div></div></details>
+            </div>
+          </div>
+        </section>
+
+        <details class="panel dev-panel"><summary class="panel-head"><div><span class="section-kicker">OPTIONAL</span><h2>开发验证</h2></div><span class="tiny muted">固定样例与 12 项评测</span></summary>
+          <div class="panel-body"><p class="helper">早期固定样例用于检查 Agent 执行链路。运行样例或评测会调用 DeepSeek API。</p><div class="dev-grid">
+            <section class="dev-block"><h3>固定样例</h3><form id="task-form" class="form-grid"><div><label for="case-select">样例</label><select id="case-select"></select></div><button id="submit-task" class="btn btn-primary" type="submit">提交任务</button><div class="full"><label for="prompt">任务说明</label><textarea id="prompt" minlength="8" maxlength="2000" required>请根据测试修复这个函数，并说明修改。</textarea></div></form><div id="task-notice" class="notice" role="status" aria-live="polite"></div><h3 class="dev-history-title">固定样例历史</h3><div id="dev-task-list" class="task-list"></div></section>
+            <section class="dev-block"><h3>12 项评测</h3><p class="muted tiny">每轮会提交 12 个 Agent 任务，并产生 API 费用。</p><button id="start-eval" class="btn btn-primary eval-button" type="button">运行评测</button><div id="eval-notice" class="notice" role="status" aria-live="polite"></div><div id="eval-runs" class="eval-runs"></div><div id="eval-detail" hidden><div class="eval-summary"><div class="eval-stat"><strong id="e-rate">—</strong><span>任务成功率</span></div><div class="eval-stat"><strong id="e-count">—</strong><span>已完成 / 总数</span></div><div class="eval-stat"><strong id="e-time">—</strong><span>平均成功耗时</span></div><div class="eval-stat"><strong id="e-agent">—</strong><span>Agent 修改率</span></div><div class="eval-stat"><strong id="e-tests">—</strong><span>测试通过率</span></div><div class="eval-stat"><strong id="e-turns">—</strong><span>平均 Agent 轮数</span></div></div><h3>逐例结果</h3><div id="eval-cases" class="case-list"></div></div></section>
+          </div></div>
+        </details>
+      </main>
+      <footer>CodeAgent · 本地代码修复演示</footer>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const defaultProjectRoot = 'D:\\找工作\\项目\\CodeAgent';
+    let savedProjectRoot = '';
+    try { savedProjectRoot = localStorage.getItem('codeagent.projectRoot') || ''; } catch {}
+    const state = { tasks:[], selectedTask:null, currentTask:null, selectedEval:null, source:null, seen:new Set(), cases:new Map(), repos:[], formRepo:null, formTestPaths:[], formRunPath:null, formMode:null, projectRoot:savedProjectRoot || defaultProjectRoot };
+    function syncView() {
+      const workbench=window.location.hash==='#workbench';
+      $('cover-view').hidden=workbench;
+      $('app-view').hidden=!workbench;
+      window.scrollTo(0,0);
+    }
+    $('enter-app').addEventListener('click',()=>{ window.location.hash='workbench'; });
+    $('back-cover').addEventListener('click',()=>{ window.location.hash='home'; });
+    window.addEventListener('hashchange',syncView);
+    syncView();
+    const statusText = {queued:'排队中',running:'执行中',succeeded:'已成功',failed:'失败',cancelled:'已取消'};
+    const phaseText = {queued:'等待 Worker',starting:'准备执行',baseline_checked:'完成修改前检查',baseline_failed:'确认问题',agent_running:'Agent 修复中',agent_modified:'验证修改',validation_running:'运行验证',validation_failed:'验证未通过',validation_unverified:'等待人工确认',agent_retry:'根据失败结果再次修复',tests_passed:'测试通过',retry_wait:'等待重试',succeeded:'完成',review_ready:'待人工审核',merged:'已合并',failed:'失败',cancelled:'已取消'};
+    const phasePercent = {queued:5,starting:15,baseline_checked:30,baseline_failed:30,agent_running:52,agent_modified:75,validation_running:82,validation_failed:88,validation_unverified:92,agent_retry:58,tests_passed:92,retry_wait:20,succeeded:100,review_ready:100,merged:100,failed:100,cancelled:100};
+    const terminal = new Set(['succeeded','failed','cancelled']);
+    const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '—';
+    const short = value => value ? value.slice(0,8) : '—';
+    const notice = (id,message) => { $(id).textContent = message || ''; };
+    const fullLocalPath = (...parts) => state.projectRoot.trim().replace(/[\\/]+$/, '')+'\\'+parts.join('\\').replaceAll('/','\\');
+    let renderedDiffTask=null;
+    let renderedDiffText=null;
+    let renderedDiffPlaceholder=null;
+    const selectedTestPaths = () => [...document.querySelectorAll('#test-options input[type="checkbox"]:checked')].map(input=>input.value);
+    const taskTestPaths = task => task.test_paths?.length ? task.test_paths : (task.test_path ? [task.test_path] : []);
+    function validationSummary(task) {
+      if (!task.source_repo) return task.status==='succeeded' ? '固定样例测试通过' : task.status==='failed' ? '固定样例未通过' : '等待验证';
+      if (task.status==='cancelled') return '已取消';
+      if (!terminal.has(task.status)) return '等待验证';
+      if (task.validation_status==='failed') return '验证未通过';
+      if (task.status==='failed') return '任务失败 · 验证未完成';
+      if (task.validation_status==='unverified') return task.validation_mode==='run' ? '程序已运行 · 待人工确认' : '待人工验证';
+      if (task.validation_status==='passed' || (task.status==='succeeded' && (!task.validation_mode || task.validation_mode==='pytest'))) return task.validation_mode==='run' ? '运行结果符合预期' : '所选测试已通过';
+      return '待人工验证';
+    }
+    function changedFiles(task) {
+      return [...new Set([...String(task.diff || '').matchAll(/^\+\+\+ b\/([^\r\n]+)$/gm)].map(match=>match[1]))];
+    }
+    function parseUnifiedDiff(diff) {
+      const rows=[];
+      if (!diff) return rows;
+      const lines=String(diff).split(/\r?\n/);
+      if (lines.at(-1)==='') lines.pop();
+      let oldFile='';
+      let oldLine=0;
+      let newLine=0;
+      let oldRemaining=0;
+      let newRemaining=0;
+      for (const line of lines) {
+        if (oldRemaining>0 || newRemaining>0) {
+          if (line.startsWith('\\ No newline at end of file')) { rows.push({kind:'meta',text:line}); continue; }
+          const prefix=line[0];
+          if (prefix===' ' && oldRemaining>0 && newRemaining>0) {
+            rows.push({kind:'context',oldLine,newLine,text:line.slice(1)});
+            oldLine++; newLine++; oldRemaining--; newRemaining--;
+            continue;
+          }
+          if (prefix==='-' && oldRemaining>0) {
+            rows.push({kind:'delete',oldLine,newLine:null,text:line.slice(1)});
+            oldLine++; oldRemaining--;
+            continue;
+          }
+          if (prefix==='+' && newRemaining>0) {
+            rows.push({kind:'add',oldLine:null,newLine,text:line.slice(1)});
+            newLine++; newRemaining--;
+            continue;
+          }
+          rows.push({kind:'meta',text:line});
+          oldRemaining=0; newRemaining=0;
+          continue;
+        }
+        if (line.startsWith('--- ')) { oldFile=line.slice(4).replace(/^a\//,''); continue; }
+        if (line.startsWith('+++ ')) {
+          const newFile=line.slice(4).replace(/^b\//,'');
+          rows.push({kind:'file',text:newFile==='/dev/null' ? oldFile : newFile});
+          continue;
+        }
+        const hunk=line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+        if (hunk) {
+          oldLine=Number(hunk[1]); newLine=Number(hunk[3]);
+          oldRemaining=hunk[2]===undefined ? 1 : Number(hunk[2]);
+          newRemaining=hunk[4]===undefined ? 1 : Number(hunk[4]);
+          rows.push({kind:'hunk',text:line});
+          continue;
+        }
+        if (line.startsWith('diff --git ') || line.startsWith('index ')) continue;
+        rows.push({kind:'meta',text:line});
+      }
+      return rows;
+    }
+    function renderDiff(diff,taskId,placeholder) {
+      if (renderedDiffTask===taskId && renderedDiffText===diff && renderedDiffPlaceholder===placeholder) return;
+      renderedDiffTask=taskId;
+      renderedDiffText=diff;
+      renderedDiffPlaceholder=placeholder;
+      const viewer=$('detail-diff');
+      viewer.replaceChildren();
+      viewer.scrollTop=0;
+      viewer.scrollLeft=0;
+      const rows=parseUnifiedDiff(diff);
+      if (!rows.length) {
+        const empty=document.createElement('div');
+        empty.className='diff-empty';
+        empty.textContent=placeholder;
+        viewer.append(empty);
+        return;
+      }
+      const fragment=document.createDocumentFragment();
+      const columns=document.createElement('div');
+      columns.className='diff-columns';
+      for (const title of ['原行','新行','','代码']) {
+        const cell=document.createElement('span');
+        cell.textContent=title;
+        columns.append(cell);
+      }
+      fragment.append(columns);
+      for (const row of rows) {
+        const element=document.createElement('div');
+        element.className='diff-row diff-'+row.kind;
+        if (['context','delete','add'].includes(row.kind)) {
+          for (const number of [row.oldLine,row.newLine]) {
+            const cell=document.createElement('span');
+            cell.className='diff-line-number';
+            cell.textContent=number==null ? '' : String(number);
+            element.append(cell);
+          }
+          const mark=document.createElement('span');
+          mark.className='diff-mark';
+          mark.textContent=row.kind==='add' ? '+' : row.kind==='delete' ? '−' : '';
+          const code=document.createElement('span');
+          code.className='diff-code';
+          code.textContent=row.text || ' ';
+          element.append(mark,code);
+        } else {
+          const title=document.createElement('span');
+          title.className='diff-section-text';
+          title.textContent=row.text;
+          element.append(title);
+        }
+        fragment.append(element);
+      }
+      viewer.append(fragment);
+    }
+    function renderReviewPaths(task) {
+      const box=$('review-path');
+      const picker=$('changed-file');
+      box.replaceChildren();
+      const files=changedFiles(task);
+      const previous=picker.dataset.taskId===task.id ? picker.value : '';
+      picker.replaceChildren();
+      for (const file of files) {
+        const option=document.createElement('option');
+        option.value=file;
+        option.textContent=file;
+        picker.append(option);
+      }
+      picker.dataset.taskId=task.id;
+      if (files.includes(previous)) picker.value=previous;
+      $('file-picker').hidden=!task.source_repo || !files.length;
+      if (!task.source_repo || task.status!=='succeeded') return;
+      const add=(label,value)=>{
+        const row=document.createElement('div');
+        const heading=document.createElement('strong');
+        const path=document.createElement('span');
+        heading.textContent=label+'：';
+        path.className='mono';
+        path.textContent=value;
+        row.append(heading,path);
+        box.append(row);
+      };
+      if (!files.length) { add('改动文件','暂无线索'); return; }
+      const file=picker.value;
+      add(task.review_status?.startsWith('merged')?'原文件（已包含修复）':'原文件（尚未合并）',fullLocalPath('local_repos',task.source_repo,file));
+      if (!task.review_status) { add('修复后文件','生成审查工作树后可查看'); return; }
+      if (task.review_status==='merged') { add('修复后文件','已合并至原文件，审查工作树已清理'); return; }
+      if (task.review_path) add('修复后文件（待审核）',fullLocalPath(task.review_path,file));
+    }
+    async function request(path, options={}) { const response = await fetch(path,options); if (!response.ok) { let detail='请求失败'; try { detail=JSON.stringify((await response.json()).detail); } catch {} throw new Error(detail); } return response.json(); }
+    function badge(status) { const node=document.createElement('span'); node.className='badge '+status; node.textContent=statusText[status] || status; return node; }
+    function taskBadge(task) {
+      const node=badge(task.status);
+      if (task.status!=='succeeded' || !task.source_repo) return node;
+      if (task.review_status==='ready') { node.className='badge running'; node.textContent='待人工审核'; }
+      else if (task.review_status==='merged') node.textContent='已合并';
+      else if (task.review_status==='merged_needs_cleanup') node.textContent='已合并·待清理';
+      else if (task.validation_status==='unverified') { node.className='badge running'; node.textContent='待人工验证'; }
+      else { node.className='badge running'; node.textContent='待生成审查'; }
+      return node;
+    }
+    async function refreshHealth() { try { await request('/health'); $('health-dot').classList.add('ok'); $('health-text').textContent='API 与数据库正常'; } catch { $('health-dot').classList.remove('ok'); $('health-text').textContent='服务连接异常'; } }
+    async function loadCases() { const cases=await request('/api/v1/cases'); const select=$('case-select'); select.replaceChildren(); const demo=document.createElement('option'); demo.value='age-boundary-demo'; demo.textContent='成年边界演示 · 阶段 0'; select.append(demo); for (const item of cases) { state.cases.set(item.case_id,item); const option=document.createElement('option'); option.value=item.case_id; option.textContent=item.title+' · '+item.case_id; select.append(option); } }
+    async function loadRepos() {
+      state.repos=await request('/api/v1/repositories');
+      const box=$('repo-select');
+      const preferred=state.formRepo || box.value;
+      box.replaceChildren();
+      if (!state.repos.length) {
+        const option=document.createElement('option');
+        option.value='';
+        option.textContent='暂无仓库，请先放入 local_repos';
+        box.append(option);
+      }
+      for (const repo of state.repos) {
+        const option=document.createElement('option');
+        option.value=repo.name;
+        option.textContent=repo.name+' · '+repo.branch+(repo.clean?'':' · 有未提交修改');
+        box.append(option);
+      }
+      if (state.repos.some(repo=>repo.name===preferred)) box.value=preferred;
+      state.formRepo=box.value;
+      updateRepoOptions();
+    }
+    function updateRepoOptions() {
+      const repo=state.repos.find(item=>item.name===$('repo-select').value);
+      const tests=repo?.tests || [];
+      const sources=repo?.source_files || [];
+      const testBox=$('test-options');
+      const selected=new Set(state.formTestPaths.filter(path=>tests.includes(path)));
+      testBox.replaceChildren();
+      if (!selected.size && tests.length) selected.add(tests[0]);
+      for (const path of tests) {
+        const label=document.createElement('label');
+        label.className='test-option';
+        const input=document.createElement('input');
+        input.type='checkbox';
+        input.value=path;
+        input.checked=selected.has(path);
+        label.append(input,document.createTextNode(path));
+        testBox.append(label);
+      }
+      if (!tests.length) testBox.textContent='该仓库没有可用的已提交 pytest 文件。';
+      state.formTestPaths=selectedTestPaths();
+      const runBox=$('run-path');
+      const previous=state.formRunPath || runBox.value;
+      runBox.replaceChildren();
+      for (const path of sources) {
+        const option=document.createElement('option');
+        option.value=path;
+        option.textContent=path;
+        runBox.append(option);
+      }
+      if (sources.includes(previous)) runBox.value=previous;
+      state.formRunPath=runBox.value;
+      if (!state.formMode || (state.formMode==='pytest' && !tests.length) || (state.formMode==='run' && !sources.length)) {
+        state.formMode=tests.length ? 'pytest' : sources.length ? 'run' : 'manual';
+      }
+      $('validation-mode').querySelector('option[value="pytest"]').disabled=!tests.length;
+      $('validation-mode').querySelector('option[value="run"]').disabled=!sources.length;
+      $('validation-mode').value=state.formMode;
+      updateValidationFields();
+    }
+    function updateValidationFields() {
+      const repo=state.repos.find(item=>item.name===$('repo-select').value);
+      const mode=$('validation-mode').value;
+      $('form-hint').textContent=!repo ? '先将已提交的 Git 仓库放入 local_repos，再点击刷新。' : !repo.clean || !repo.branch ? '请先提交或清理该仓库的未提交修改，并切换到已提交的分支。' : !repo.source_files?.length ? '该仓库没有可修改的已提交 Python 源文件。' : '选择仓库，描述问题，再决定如何验证修复。';
+      $('pytest-fields').hidden=mode!=='pytest';
+      $('run-fields').hidden=mode!=='run';
+      $('manual-fields').hidden=mode!=='manual';
+      $('mode-hint').textContent=mode==='pytest' ? '所选文件会在修改前后运行；旧版本须能复现问题。' : mode==='run' ? '在隔离容器中直接运行该文件。没有预期输出时，运行成功仍需人工确认结果。' : '本次不自动判断修复是否正确，合并前请自行检查。';
+      $('submit-repo').disabled=!repo || !repo.clean || !repo.branch || !repo.source_files?.length || (mode==='pytest' && (!selectedTestPaths().length || selectedTestPaths().length>8)) || (mode==='run' && !$('run-path').value);
+    }
+    async function refreshTasks() {
+      const tasks=await request('/api/v1/tasks?limit=30');
+      state.tasks=tasks;
+      const repoTasks=tasks.filter(task=>!!task.source_repo);
+      const fixedTasks=tasks.filter(task=>!task.source_repo);
+      $('m-tasks').textContent=String(repoTasks.length);
+      $('m-running').textContent=String(repoTasks.filter(task=>task.status==='running').length);
+      $('m-review').textContent=String(repoTasks.filter(task=>task.review_status==='ready').length);
+      $('m-merged').textContent=String(repoTasks.filter(task=>task.review_status?.startsWith('merged')).length);
+      const renderList=(id,items)=>{
+        const list=$(id);
+        list.replaceChildren();
+        if (!items.length) { list.textContent='暂无任务。'; return; }
+        for (const task of items) {
+          const row=document.createElement('button');
+          row.className='task-item'+(state.selectedTask===task.id?' active':'');
+          row.type='button';
+          const title=document.createElement('span');
+          title.className='title';
+          title.textContent=(state.cases.get(task.repo_id)?.title || task.repo_id)+' · '+short(task.id);
+          const meta=document.createElement('span');
+          meta.className='meta';
+          const when=document.createElement('span');
+          when.textContent=time(task.created_at);
+          meta.append(when,taskBadge(task));
+          row.append(title,meta);
+          row.addEventListener('click',()=>selectTask(task.id,true));
+          list.append(row);
+        }
+      };
+      renderList('task-list',repoTasks);
+      renderList('dev-task-list',fixedTasks);
+      if (!state.selectedTask && repoTasks.length) selectTask(repoTasks[0].id);
+    }
+    async function selectTask(id,scroll=false) {
+      state.selectedTask=id;
+      state.seen.clear();
+      $('timeline').replaceChildren();
+      notice('review-notice','');
+      if (state.source) state.source.close();
+      state.source=null;
+      const task=await refreshSelectedTask();
+      if (!task || state.selectedTask!==id) return;
+      $('diff-details').open=!!task.diff && terminal.has(task.status);
+      $('test-details').open=task.status==='failed';
+      if (scroll) $('detail-section').scrollIntoView({behavior:'smooth',block:'start'});
+      watchTask(id);
+      refreshTasks().catch(()=>{});
+    }
+    async function refreshSelectedTask() {
+      if (!state.selectedTask) return null;
+      const selectedId=state.selectedTask;
+      const task=await request('/api/v1/tasks/'+encodeURIComponent(selectedId));
+      if (state.selectedTask!==selectedId) return null;
+      state.currentTask=task;
+      const files=changedFiles(task);
+      $('detail-empty').hidden=true;
+      $('detail').hidden=false;
+      $('detail-title').textContent=state.cases.get(task.repo_id)?.title || (task.source_repo ? '仓库修复 · '+task.source_repo : task.repo_id);
+      $('detail-id').textContent='任务 ID：'+task.id;
+      $('detail-context').textContent=task.source_repo
+        ? '历史任务结果 · 分支 '+task.base_branch+' · 基准提交 '+(task.base_commit || '—').slice(0,12)
+        : '开发验证的固定样例任务';
+      const selectedBadge=taskBadge(task);
+      $('detail-status').className=selectedBadge.className;
+      $('detail-status').textContent=selectedBadge.textContent;
+      $('detail-phase').textContent=phaseText[task.phase] || task.phase;
+      const pct=phasePercent[task.phase] ?? 5;
+      $('progress-fill').style.width=pct+'%';
+      $('progress-fill').classList.toggle('failed',task.status==='failed');
+      $('detail-percent').textContent=pct+'%';
+      const info=[
+        '尝试次数：'+task.attempts+' · Agent 轮数：'+(task.agent_turns ?? '—')+' · 耗时：'+(task.duration_ms==null?'—':(task.duration_ms/1000).toFixed(1)+' 秒'),
+        '创建时间：'+time(task.created_at)
+      ];
+      if (task.source_repo) {
+        const mode=task.validation_mode || 'pytest';
+        info.push('验证方式：'+({pytest:'pytest',run:'直接运行 Python',manual:'人工验证'}[mode] || mode));
+        if (mode==='pytest') info.push('所选测试：'+(taskTestPaths(task).join('、') || '—'));
+        if (mode==='run') info.push('运行入口：'+(task.run_path || '—')+(task.run_args?.length ? ' · 参数：'+task.run_args.join(' ') : ''));
+        info.push('修改源码：'+(files.length ? files.join('、') : '等待结果'));
+      }
+      $('detail-info').textContent=info.join('\n');
+      $('detail-info').style.whiteSpace='pre-line';
+      $('detail-files').textContent=files.length ? files.join('、') : (task.status==='succeeded' ? '已完成' : '等待结果');
+      $('detail-test-summary').textContent=validationSummary(task);
+      const mode=task.validation_mode || 'pytest';
+      $('detail-validation-note').textContent=!task.source_repo ? '固定样例验证结果。' : mode==='pytest'
+        ? '仅检查所选的 '+taskTestPaths(task).length+' 个测试文件；其他测试尚未自动运行。'
+        : mode==='run' ? (task.validation_status==='passed' ? '已核对程序退出状态和预期输出片段；其他行为仍需检查。' : task.validation_status==='unverified' ? '仅确认所选程序已运行；输出内容是否正确需人工检查。' : '直接运行所选 Python 文件；查看输出了解检查结果。')
+        : '仅做基础代码检查；本次修复需人工运行和确认。';
+      $('diff-context').textContent=task.source_repo
+        ? '这份差异属于任务 '+short(task.id)+'，基于 '+task.source_repo+' 的提交 '+(task.base_commit || '—').slice(0,12)+'。'+(task.status==='failed' && task.diff ? '这是验证未通过的候选改动，请检查失败原因。' : '')
+        : '当前固定样例任务：'+task.repo_id+' · '+short(task.id);
+      renderDiff(task.diff || '',task.id,terminal.has(task.status) ? '本次任务没有代码差异。' : '等待执行结果…');
+      const outputs=[];
+      if (task.test_output) outputs.push(task.test_output);
+      else if (task.baseline_output) outputs.push('修改前验证输出：\n'+task.baseline_output);
+      if (!outputs.length) outputs.push(mode==='manual' && task.status==='succeeded' ? '未执行自动测试；请自行运行并确认修复结果。' : '等待执行结果…');
+      if (task.error_code) outputs.push(task.error_code+' · '+(task.error_message || ''));
+      $('detail-tests').textContent=outputs.join('\n\n');
+      $('cancel-task').hidden=terminal.has(task.status);
+      $('review-box').hidden=!(task.source_repo && task.status==='succeeded');
+      $('review-warning').hidden=task.validation_status!=='unverified';
+      $('prepare-review').hidden=!!task.review_status;
+      $('merge-review').hidden=task.review_status!=='ready';
+      renderReviewPaths(task);
+      return task;
+    }
+    function watchTask(id) { const source=new EventSource('/api/v1/tasks/'+encodeURIComponent(id)+'/events'); state.source=source; source.addEventListener('progress',event=>{ if (state.selectedTask!==id) return; const item=JSON.parse(event.data); if (!state.seen.has(item.id)) { state.seen.add(item.id); const row=document.createElement('div'); row.className='timeline-item'; const body=document.createElement('div'); const label=document.createElement('div'); label.textContent=item.message; const stamp=document.createElement('time'); stamp.textContent=time(item.created_at); body.append(label,stamp); row.append(body); $('timeline').prepend(row); } refreshSelectedTask().catch(()=>{}); refreshEvaluations().catch(()=>{}); if (terminal.has(item.phase)) { source.close(); if (state.source===source) state.source=null; } }); }
+    async function refreshEvaluations() {
+      const runs=await request('/api/v1/evaluations?limit=5');
+      const box=$('eval-runs');
+      box.replaceChildren();
+      for (const run of runs) {
+        const button=document.createElement('button');
+        button.type='button';
+        button.className='run-item'+(state.selectedEval===run.id?' active':'');
+        button.textContent=time(run.created_at)+' · '+run.finished+'/'+run.total+' 已完成';
+        button.addEventListener('click',()=>selectEval(run.id));
+        box.append(button);
+      }
+      if (!runs.length) return;
+      if (!state.selectedEval) state.selectedEval=runs[0].id;
+      const active=runs.find(run=>run.id===state.selectedEval);
+      if (active) renderEvaluation(active);
+      else renderEvaluation(await request('/api/v1/evaluations/'+encodeURIComponent(state.selectedEval)));
+    }
+    async function selectEval(id) { state.selectedEval=id; const run=await request('/api/v1/evaluations/'+encodeURIComponent(id)); renderEvaluation(run); }
+    function renderEvaluation(run) { $('eval-detail').hidden=false; $('e-rate').textContent=run.success_rate.toFixed(1)+'%'; $('e-count').textContent=run.finished+'/'+run.total; $('e-time').textContent=run.avg_duration_ms==null?'—':(run.avg_duration_ms/1000).toFixed(1)+'s'; $('e-agent').textContent=run.agent_completion_rate.toFixed(1)+'%'; $('e-tests').textContent=run.test_pass_rate.toFixed(1)+'%'; $('e-turns').textContent=run.avg_agent_turns==null?'—':run.avg_agent_turns.toFixed(1); const list=$('eval-cases'); list.replaceChildren(); for (const item of run.cases) { const row=document.createElement('button'); row.className='case-item'; row.type='button'; const title=document.createElement('span'); title.className='title'; title.textContent=item.title; const meta=document.createElement('span'); meta.className='meta'; const label=document.createElement('span'); label.textContent=phaseText[item.phase] || item.phase; meta.append(label,badge(item.status)); row.append(title,meta); row.addEventListener('click',()=>selectTask(item.task_id,true)); list.append(row); } }
+    $('case-select').addEventListener('change',()=>{ const item=state.cases.get($('case-select').value); $('prompt').value=item ? '请根据测试修复：'+item.description : '修复年龄边界，使 18 岁被视为成年人。'; });
+    $('project-root').value=state.projectRoot;
+    $('project-root').addEventListener('change',()=>{
+      const value=$('project-root').value.trim();
+      if (!value) { $('project-root').value=state.projectRoot; return; }
+      state.projectRoot=value;
+      try { localStorage.setItem('codeagent.projectRoot',value); } catch {}
+      refreshSelectedTask().catch(()=>{});
+    });
+    $('task-form').addEventListener('submit',async event=>{ event.preventDefault(); const button=$('submit-task'); button.disabled=true; notice('task-notice','正在提交…'); try { const task=await request('/api/v1/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({repo_id:$('case-select').value,prompt:$('prompt').value})}); notice('task-notice','任务已创建：'+short(task.id)); await refreshTasks(); await selectTask(task.id,true); } catch(error) { notice('task-notice','提交失败：'+error.message); } finally { button.disabled=false; } });
+    $('repo-select').addEventListener('change',()=>{
+      state.formRepo=$('repo-select').value;
+      state.formTestPaths=[];
+      state.formRunPath=null;
+      updateRepoOptions();
+    });
+    $('validation-mode').addEventListener('change',()=>{ state.formMode=$('validation-mode').value; updateValidationFields(); });
+    $('test-options').addEventListener('change',event=>{ if (selectedTestPaths().length>8 && event.target.matches('input[type="checkbox"]')) { event.target.checked=false; notice('repo-notice','最多选择 8 个测试文件。'); } state.formTestPaths=selectedTestPaths(); updateValidationFields(); });
+    $('run-path').addEventListener('change',()=>{ state.formRunPath=$('run-path').value; updateValidationFields(); });
+    $('changed-file').addEventListener('change',()=>{ if (state.currentTask) renderReviewPaths(state.currentTask); });
+    $('refresh-repos').addEventListener('click',()=>loadRepos().catch(error=>notice('repo-notice',error.message)));
+    $('repo-form').addEventListener('submit',async event=>{
+      event.preventDefault();
+      const button=$('submit-repo');
+      const mode=$('validation-mode').value;
+      const body={repo_name:$('repo-select').value,prompt:$('repo-prompt').value,validation_mode:mode};
+      if (mode==='pytest') { body.test_paths=selectedTestPaths(); body.test_path=body.test_paths[0]; }
+      if (mode==='run') {
+        body.run_path=$('run-path').value;
+        body.run_args=$('run-args').value.trim().split(/\s+/).filter(Boolean);
+        if ($('expected-output').value.trim()) body.expected_output=$('expected-output').value.trim();
+      }
+      button.disabled=true;
+      notice('repo-notice','正在提交…');
+      try {
+        const task=await request('/api/v1/repository-tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        notice('repo-notice','任务已创建：'+short(task.id));
+        await refreshTasks();
+        await selectTask(task.id,true);
+      } catch(error) { notice('repo-notice','提交失败：'+error.message); }
+      finally { updateValidationFields(); }
+    });
+    $('prepare-review').addEventListener('click',async()=>{ const button=$('prepare-review'); button.disabled=true; notice('review-notice','正在生成审查工作树…'); try { await request('/api/v1/tasks/'+encodeURIComponent(state.selectedTask)+'/review',{method:'POST',headers:{'X-CodeAgent-Action':'review'}}); notice('review-notice','审查工作树已创建。'); await refreshSelectedTask(); await loadRepos(); } catch(error) { notice('review-notice','生成失败：'+error.message); } finally { button.disabled=false; } });
+    $('merge-review').addEventListener('click',async()=>{ const unverified=state.currentTask?.validation_status==='unverified'; if (!confirm(unverified?'这次修复未自动确认正确。请先自行检查代码与运行结果，确认仍要合并到原仓库当前分支？':'已查看代码差异和验证结果，确认合并到原仓库当前分支？')) return; const button=$('merge-review'); button.disabled=true; notice('review-notice','正在合并…'); try { await request('/api/v1/tasks/'+encodeURIComponent(state.selectedTask)+'/merge',{method:'POST',headers:{'X-CodeAgent-Action':'merge'}}); notice('review-notice','合并完成。'); await refreshSelectedTask(); await loadRepos(); } catch(error) { notice('review-notice','合并失败：'+error.message); } finally { button.disabled=false; } });
+    $('cancel-task').addEventListener('click',async()=>{ if (!state.selectedTask) return; try { await request('/api/v1/tasks/'+encodeURIComponent(state.selectedTask)+'/cancel',{method:'POST'}); await refreshSelectedTask(); await refreshTasks(); } catch(error) { notice('task-notice','取消失败：'+error.message); } });
+    $('start-eval').addEventListener('click',async()=>{ const button=$('start-eval'); button.disabled=true; notice('eval-notice','正在创建 12 个评测任务…'); try { const run=await request('/api/v1/evaluations',{method:'POST'}); state.selectedEval=run.id; notice('eval-notice','评测已创建，任务将依次执行。'); await refreshEvaluations(); } catch(error) { notice('eval-notice','评测创建失败：'+error.message); } finally { button.disabled=false; } });
+    Promise.allSettled([refreshHealth(),loadCases(),loadRepos(),refreshTasks(),refreshEvaluations()]).then(results=>{ if (results.some(r=>r.status==='rejected')) notice('task-notice','部分数据读取失败，请检查服务后刷新页面。'); });
+    setInterval(()=>{ refreshHealth().catch(()=>{}); refreshTasks().catch(()=>{}); refreshSelectedTask().catch(()=>{}); refreshEvaluations().catch(()=>{}); },4000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+[project]
+name = "codeagent"
+version = "0.1.0"
+description = "AI coding task service using Claude Agent SDK and DeepSeek"
+requires-python = ">=3.10"
+dependencies = [
+    "alembic>=1.13,<2",
+    "celery[redis]>=5.4,<6",
+    "claude-agent-sdk>=0.2.178,<1",
+    "docker>=7,<8",
+    "fastapi>=0.115,<1",
+    "psycopg[binary]>=3.2,<4",
+    "python-dotenv>=1,<2",
+    "pytest>=8,<10",
+    "sqlalchemy>=2,<3",
+    "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+codeagent = ["static/*.html", "static/*.css"]

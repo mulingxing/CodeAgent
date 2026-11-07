@@ -16,21 +16,15 @@ CodeAgent 面向本机可信的 Python Git 仓库。选择仓库、说明问题�
 - **合并由人决定**：工作台展示逐行差异、原文件行号和运行记录；候选修改先进入独立 Git 审查工作树，确认后才快进合并。
 - **任务可追踪**：PostgreSQL Outbox、Redis、Celery Worker 和 Beat 处理投递与恢复，页面通过 SSE 获取持久化进度事件。
 
-![CodeAgent 五步修复流程](docs/images/workflow.svg)
-
 ## 界面预览
 
-以下是本地试验任务的分段截图，分别来自算法、数值计算和旅行助手案例。每张都是独立图片，直接向下滚动即可查看后续界面；点击截图可打开原图。新克隆的仓库只包含这些展示素材，不包含本地任务数据。
+封面和工作台是项目的两张主要界面图。下面先看完整工作台，再用较短的局部截图展示结果、验证与审核。截图来自本地试验任务；点击图片可打开原图。新克隆的仓库只包含展示素材，不包含本地任务数据。
 
-### 1. 选择仓库并提交问题
+### 1. 工作台总览
 
-在“发起修复”中选择本地仓库、填写问题、指定验证方式。使用 `pytest` 时，可以选择 1～8 个已跟踪的测试文件。
+工作台左侧用于选择仓库、描述问题并设置验证方式；右侧列出最近任务。选择任务后，可以在下方查看结果和审核入口。
 
-[![选择本地仓库、问题描述和 pytest 验收测试](docs/images/pytest-mode.png)](docs/images/pytest-mode.png)
-
-直接运行模式适合已有可执行入口、但没有现成 `pytest` 用例的项目。下面的数值案例选择 `src/simulate.py`，并填写预期输出 `distance=5.00`。
-
-[![直接运行 Python 文件并填写预期输出](docs/images/run-mode.png)](docs/images/run-mode.png)
+<p align="center"><a href="docs/images/workbench.png"><img src="docs/images/workbench.png" alt="CodeAgent 工作台总览：发起修复与最近任务" width="920"></a></p>
 
 ### 2. 查看任务结果
 
@@ -124,7 +118,7 @@ docker compose up --build
 
 ## 架构设计
 
-![CodeAgent 架构：FastAPI、Outbox、Celery、Agent 与 Sandbox](docs/images/architecture.svg)
+<p align="center"><a href="docs/images/architecture.svg"><img src="docs/images/architecture.svg" alt="CodeAgent 架构：FastAPI、Outbox、Celery、Agent 与 Sandbox" width="880"></a></p>
 
 | 部分 | 职责 |
 | --- | --- |

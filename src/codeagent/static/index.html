@@ -507,7 +507,33 @@
       renderReviewPaths(task);
       return task;
     }
-    function watchTask(id) { const source=new EventSource('/api/v1/tasks/'+encodeURIComponent(id)+'/events'); state.source=source; source.addEventListener('progress',event=>{ if (state.selectedTask!==id) return; const item=JSON.parse(event.data); if (!state.seen.has(item.id)) { state.seen.add(item.id); const row=document.createElement('div'); row.className='timeline-item'; const body=document.createElement('div'); const label=document.createElement('div'); label.textContent=item.message; const stamp=document.createElement('time'); stamp.textContent=time(item.created_at); body.append(label,stamp); $('timeline').prepend(row); } refreshSelectedTask().catch(()=>{}); if (developerMode) refreshEvaluations().catch(()=>{}); if (terminal.has(item.phase)) { source.close(); if (state.source===source) state.source=null; } }); }
+    function watchTask(id) {
+      const source=new EventSource('/api/v1/tasks/'+encodeURIComponent(id)+'/events');
+      state.source=source;
+      source.addEventListener('progress',event=>{
+        if (state.selectedTask!==id) return;
+        const item=JSON.parse(event.data);
+        if (!state.seen.has(item.id)) {
+          state.seen.add(item.id);
+          const row=document.createElement('div');
+          row.className='timeline-item';
+          const body=document.createElement('div');
+          const label=document.createElement('div');
+          label.textContent=item.message;
+          const stamp=document.createElement('time');
+          stamp.textContent=time(item.created_at);
+          body.append(label,stamp);
+          row.append(body);
+          $('timeline').prepend(row);
+        }
+        refreshSelectedTask().catch(()=>{});
+        if (developerMode) refreshEvaluations().catch(()=>{});
+        if (terminal.has(item.phase)) {
+          source.close();
+          if (state.source===source) state.source=null;
+        }
+      });
+    }
     async function refreshEvaluations() {
       const runs=await request('/api/v1/evaluations?limit=5');
       const box=$('eval-runs');

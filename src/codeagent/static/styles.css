@@ -671,6 +671,9 @@ textarea { min-height: 118px; }
 .task-repo { display: block; color: var(--ink); font-size: 15px; font-weight: 690; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-issue { display: block; overflow: hidden; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 480; text-overflow: ellipsis; white-space: nowrap; }
 .task-item .meta { margin-top: 10px; font-size: 12px; }
+.history-archive { margin-top: 5px; border-top: 1px solid var(--line); }
+.history-archive > summary { width: fit-content; padding: 13px 2px 2px; color: var(--teal-dark); font-size: 12px; font-weight: 680; cursor: pointer; }
+.history-archive-list { display: grid; gap: 11px; padding-top: 11px; }
 .detail-title { font-size: 21px; }
 .detail-top .muted { display: -webkit-box; max-width: 850px; overflow: hidden; color: var(--ink-soft); font-size: 13px; line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .detail-issue { display: -webkit-box; max-width: 820px; overflow: hidden; margin: 5px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }

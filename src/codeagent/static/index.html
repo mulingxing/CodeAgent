@@ -90,7 +90,7 @@
           </div>
         </section>
 
-        <details class="panel dev-panel"><summary class="panel-head"><h2>开发验证</h2></summary>
+        <details id="dev-panel" class="panel dev-panel" hidden><summary class="panel-head"><h2>开发验证</h2></summary>
           <div class="panel-body"><p class="helper">早期固定样例用于检查 Agent 执行链路。运行样例或评测会调用 DeepSeek API。</p><div class="dev-grid">
             <section class="dev-block"><h3>固定样例</h3><form id="task-form" class="form-grid"><div><label for="case-select">样例</label><select id="case-select"></select></div><button id="submit-task" class="btn btn-primary" type="submit">提交任务</button><div class="full"><label for="prompt">任务说明</label><textarea id="prompt" minlength="8" maxlength="2000" required>请根据测试修复这个函数，并说明修改。</textarea></div></form><div id="task-notice" class="notice" role="status" aria-live="polite"></div><h3 class="dev-history-title">固定样例历史</h3><div id="dev-task-list" class="task-list"></div></section>
             <section class="dev-block"><h3>12 项评测</h3><p class="muted tiny">每轮会提交 12 个 Agent 任务，并产生 API 费用。</p><button id="start-eval" class="btn btn-primary eval-button" type="button">运行评测</button><div id="eval-notice" class="notice" role="status" aria-live="polite"></div><div id="eval-runs" class="eval-runs"></div><div id="eval-detail" hidden><div class="eval-summary"><div class="eval-stat"><strong id="e-rate">—</strong><span>任务成功率</span></div><div class="eval-stat"><strong id="e-count">—</strong><span>已完成 / 总数</span></div><div class="eval-stat"><strong id="e-time">—</strong><span>平均成功耗时</span></div><div class="eval-stat"><strong id="e-agent">—</strong><span>Agent 修改率</span></div><div class="eval-stat"><strong id="e-tests">—</strong><span>测试通过率</span></div><div class="eval-stat"><strong id="e-turns">—</strong><span>平均 Agent 轮数</span></div></div><h3>逐例结果</h3><div id="eval-cases" class="case-list"></div></div></section>
@@ -103,10 +103,12 @@
 
   <script>
     const $ = id => document.getElementById(id);
+    const developerMode = new URLSearchParams(window.location.search).get('dev')==='1';
+    $('dev-panel').hidden=!developerMode;
     const defaultProjectRoot = 'D:\\找工作\\项目\\CodeAgent';
     let savedProjectRoot = '';
     try { savedProjectRoot = localStorage.getItem('codeagent.projectRoot') || ''; } catch {}
-    const state = { tasks:[], selectedTask:null, currentTask:null, selectedEval:null, source:null, seen:new Set(), cases:new Map(), repos:[], formRepo:null, formTestPaths:[], formRunPath:null, formMode:null, projectRoot:savedProjectRoot || defaultProjectRoot };
+    const state = { tasks:[], selectedTask:null, currentTask:null, selectedEval:null, source:null, seen:new Set(), cases:new Map(), repos:[], formRepo:null, formTestPaths:[], formRunPath:null, formMode:null, showPastFailures:false, projectRoot:savedProjectRoot || defaultProjectRoot };
     function syncView() {
       const workbench=window.location.hash==='#workbench';
       $('cover-view').hidden=workbench;
@@ -373,12 +375,22 @@
       state.tasks=tasks;
       const repoTasks=tasks.filter(task=>!!task.source_repo);
       const fixedTasks=tasks.filter(task=>!task.source_repo);
-      const renderList=(id,items)=>{
+      const seenRepos=new Set();
+      const visibleTasks=[];
+      const pastFailures=[];
+      for (const task of repoTasks) {
+        if (task.status==='failed' && seenRepos.has(task.source_repo)) pastFailures.push(task);
+        else visibleTasks.push(task);
+        seenRepos.add(task.source_repo);
+      }
+      const renderList=(id,items,archived=[])=>{
         const list=$(id);
         const scrollTop=list.scrollTop;
+        const previousArchive=list.querySelector('.history-archive');
+        if (previousArchive) state.showPastFailures=previousArchive.open;
         list.replaceChildren();
-        if (!items.length) { list.textContent='暂无任务。'; return; }
-        for (const task of items) {
+        if (!items.length && !archived.length) { list.textContent='暂无任务。'; return; }
+        const appendTask=(task,target)=>{
           const row=document.createElement('button');
           row.className='task-item'+(state.selectedTask===task.id?' active':'');
           row.type='button';
@@ -398,12 +410,26 @@
           meta.append(when,taskBadge(task));
           row.append(repo,issue,meta);
           row.addEventListener('click',()=>selectTask(task.id,true));
-          list.append(row);
+          target.append(row);
+        };
+        for (const task of items) appendTask(task,list);
+        if (archived.length) {
+          const history=document.createElement('details');
+          history.className='history-archive';
+          history.open=state.showPastFailures;
+          const summary=document.createElement('summary');
+          summary.textContent='先前失败的任务（'+archived.length+'）';
+          const historyList=document.createElement('div');
+          historyList.className='history-archive-list';
+          for (const task of archived) appendTask(task,historyList);
+          history.append(summary,historyList);
+          history.addEventListener('toggle',()=>{ if (history.isConnected) state.showPastFailures=history.open; });
+          list.append(history);
         }
         list.scrollTop=scrollTop;
       };
-      renderList('task-list',repoTasks);
-      renderList('dev-task-list',fixedTasks);
+      renderList('task-list',visibleTasks,pastFailures);
+      if (developerMode) renderList('dev-task-list',fixedTasks);
       if (!state.selectedTask && repoTasks.length) selectTask(repoTasks[0].id);
     }
     async function selectTask(id,scroll=false) {
@@ -481,7 +507,7 @@
       renderReviewPaths(task);
       return task;
     }
-    function watchTask(id) { const source=new EventSource('/api/v1/tasks/'+encodeURIComponent(id)+'/events'); state.source=source; source.addEventListener('progress',event=>{ if (state.selectedTask!==id) return; const item=JSON.parse(event.data); if (!state.seen.has(item.id)) { state.seen.add(item.id); const row=document.createElement('div'); row.className='timeline-item'; const body=document.createElement('div'); const label=document.createElement('div'); label.textContent=item.message; const stamp=document.createElement('time'); stamp.textContent=time(item.created_at); body.append(label,stamp); row.append(body); $('timeline').prepend(row); } refreshSelectedTask().catch(()=>{}); refreshEvaluations().catch(()=>{}); if (terminal.has(item.phase)) { source.close(); if (state.source===source) state.source=null; } }); }
+    function watchTask(id) { const source=new EventSource('/api/v1/tasks/'+encodeURIComponent(id)+'/events'); state.source=source; source.addEventListener('progress',event=>{ if (state.selectedTask!==id) return; const item=JSON.parse(event.data); if (!state.seen.has(item.id)) { state.seen.add(item.id); const row=document.createElement('div'); row.className='timeline-item'; const body=document.createElement('div'); const label=document.createElement('div'); label.textContent=item.message; const stamp=document.createElement('time'); stamp.textContent=time(item.created_at); body.append(label,stamp); $('timeline').prepend(row); } refreshSelectedTask().catch(()=>{}); if (developerMode) refreshEvaluations().catch(()=>{}); if (terminal.has(item.phase)) { source.close(); if (state.source===source) state.source=null; } }); }
     async function refreshEvaluations() {
       const runs=await request('/api/v1/evaluations?limit=5');
       const box=$('eval-runs');
@@ -548,8 +574,8 @@
     $('merge-review').addEventListener('click',async()=>{ const unverified=state.currentTask?.validation_status==='unverified'; const target='local_repos/'+(state.currentTask?.source_repo || '所选仓库'); if (!confirm((unverified?'这次修复未自动确认正确，请先检查代码与运行结果。':'已检查代码差异和验证结果。')+'确认合并到 '+target+' 的当前分支？')) return; const button=$('merge-review'); button.disabled=true; notice('review-notice','正在合并…'); try { await request('/api/v1/tasks/'+encodeURIComponent(state.selectedTask)+'/merge',{method:'POST',headers:{'X-CodeAgent-Action':'merge'}}); notice('review-notice','合并完成。'); await refreshSelectedTask(); await loadRepos(); } catch(error) { notice('review-notice','合并失败：'+error.message); } finally { button.disabled=false; } });
     $('cancel-task').addEventListener('click',async()=>{ if (!state.selectedTask) return; try { await request('/api/v1/tasks/'+encodeURIComponent(state.selectedTask)+'/cancel',{method:'POST'}); await refreshSelectedTask(); await refreshTasks(); } catch(error) { notice('task-notice','取消失败：'+error.message); } });
     $('start-eval').addEventListener('click',async()=>{ const button=$('start-eval'); button.disabled=true; notice('eval-notice','正在创建 12 个评测任务…'); try { const run=await request('/api/v1/evaluations',{method:'POST'}); state.selectedEval=run.id; notice('eval-notice','评测已创建，任务将依次执行。'); await refreshEvaluations(); } catch(error) { notice('eval-notice','评测创建失败：'+error.message); } finally { button.disabled=false; } });
-    Promise.allSettled([refreshHealth(),loadCases(),loadRepos(),refreshTasks(),refreshEvaluations()]).then(results=>{ if (results.some(r=>r.status==='rejected')) notice('repo-notice','部分数据读取失败，请检查服务后刷新页面。'); });
-    setInterval(()=>{ refreshHealth().catch(()=>{}); refreshTasks().catch(()=>{}); refreshSelectedTask().catch(()=>{}); refreshEvaluations().catch(()=>{}); },4000);
+    Promise.allSettled([refreshHealth(),loadRepos(),refreshTasks(),...(developerMode ? [loadCases(),refreshEvaluations()] : [])]).then(results=>{ if (results.some(r=>r.status==='rejected')) notice('repo-notice','部分数据读取失败，请检查服务后刷新页面。'); });
+    setInterval(()=>{ refreshHealth().catch(()=>{}); refreshTasks().catch(()=>{}); refreshSelectedTask().catch(()=>{}); if (developerMode) refreshEvaluations().catch(()=>{}); },4000);
   </script>
 </body>
 </html>

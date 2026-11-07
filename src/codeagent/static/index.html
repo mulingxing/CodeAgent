@@ -14,8 +14,8 @@
       </header>
       <div class="cover-main">
         <div class="cover-copy">
-          <h1 id="cover-title" class="cover-title">AI 修复代码，<br><em>合并由你决定。</em></h1>
-          <p class="cover-description">选择本地 Python 仓库，描述问题。CodeAgent 生成修复、运行验证，并把最终决定交给你。</p>
+          <h1 id="cover-title" class="cover-title">AI 修复代码，<em>过程看得见</em></h1>
+          <p class="cover-description">选择本地 Python 仓库，描述问题；CodeAgent 生成修复并运行验证，最后由你审核合并。</p>
           <div class="cover-actions">
             <button id="enter-app" class="btn btn-primary cover-primary" type="button">进入工作台 <span aria-hidden="true">→</span></button>
           </div>
@@ -390,6 +390,7 @@
           const issue=document.createElement('span');
           issue.className='task-issue';
           issue.textContent=task.prompt?.trim() || '代码修复任务';
+          issue.title=issue.textContent;
           const meta=document.createElement('span');
           meta.className='meta';
           const when=document.createElement('span');
@@ -431,6 +432,7 @@
       $('detail').hidden=false;
       $('detail-title').textContent=state.cases.get(task.repo_id)?.title || task.repo_id.replaceAll('_',' ');
       $('detail-issue').textContent=task.prompt?.trim() || '代码修复任务';
+      $('detail-issue').title=$('detail-issue').textContent;
       const selectedBadge=taskBadge(task);
       $('detail-status').className=selectedBadge.className;
       $('detail-status').textContent=selectedBadge.textContent;
